@@ -87,9 +87,54 @@ body {
 }
 
 /* 搜索栏样式 */
+.search-form {
+    width: min(600px, 100%);
+}
+
+.search-engine-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 8px 2px;
+}
+
+.search-engine-tab {
+    min-width: 64px;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: #718096;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.search-engine-tab:hover {
+    color: #2d3748;
+    background: #edf2f7;
+}
+
+.search-engine-tab.active {
+    color: #3182ce;
+    background: #ebf8ff;
+    border-color: #bee3f8;
+}
+
+.search-engine-tab:active {
+    transform: translateY(1px);
+}
+
+.search-engine-tab:focus-visible {
+    outline: 3px solid rgba(66, 153, 225, 0.25);
+    outline-offset: 2px;
+}
+
 .search-bar {
     display: flex;
-    width: 600px;
+    width: 100%;
     max-width: 100%;
     position: relative;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -124,8 +169,7 @@ body {
     padding-left: 35px;
     font-size: 16px;
     border: 1px solid #ddd;
-    border-right: none;
-    border-radius: 4px 0 0 4px;
+    border-radius: 8px;
     transition: all 0.3s ease;
 }
 
@@ -133,32 +177,6 @@ body {
     outline: none;
     border-color: #4299e1;
     box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
-}
-
-.search-bar select {
-    width: 100px;
-    padding: 10px;
-    font-size: 16px;
-    border: 1px solid #ddd;
-    border-radius: 0 4px 4px 0;
-    background-color: #f8f9fa;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    position: relative;
-    appearance: none;
-    padding-right: 25px;
-}
-
-.search-bar::after {
-    content: '\f0d7';
-    font-family: 'Font Awesome 5 Free';
-    font-weight: 900;
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #718096;
-    pointer-events: none;
 }
 
 /* 动画效果 */

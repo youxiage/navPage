@@ -38,16 +38,16 @@
                 <!-- 搜索栏和管理员按钮 -->
                 <div class="header">
                     <form class="search-form" onsubmit="handleSearch(event)">
+                        <div class="search-engine-tabs" role="group" aria-label="选择搜索引擎">
+                            <button type="button" class="search-engine-tab" data-engine="baidu" aria-pressed="true" onclick="setSearchEngine('baidu')">百度</button>
+                            <button type="button" class="search-engine-tab" data-engine="google" aria-pressed="false" onclick="setSearchEngine('google')">Google</button>
+                            <button type="button" class="search-engine-tab" data-engine="bing" aria-pressed="false" onclick="setSearchEngine('bing')">Bing</button>
+                        </div>
                         <div class="search-bar">
                             <div class="search-icon">
                                 <i class="fas fa-search"></i>
                             </div>
                             <input type="text" id="searchInput" placeholder="搜索...">
-                            <select id="searchEngine">
-                                <option value="baidu"><i class="fab fa-baidu"></i> 百度</option>
-                                <option value="google"><i class="fab fa-google"></i> Google</option>
-                                <option value="bing"><i class="fab fa-microsoft"></i> Bing</option>
-                            </select>
                         </div>
                     </form>
                     <div class="header-actions">

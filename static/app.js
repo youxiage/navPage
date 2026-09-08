@@ -1,15 +1,20 @@
 // 搜索引擎配置
 const SEARCH_ENGINES = {
     baidu: {
-        url: 'https://www.baidu.com/s?wd='
+        url: 'https://www.baidu.com/s?wd=',
+        label: '百度'
     },
     google: {
-        url: 'https://www.google.com/search?q='
+        url: 'https://www.google.com/search?q=',
+        label: 'Google'
     },
     bing: {
-        url: 'https://www.bing.com/search?q='
+        url: 'https://www.bing.com/search?q=',
+        label: 'Bing'
     }
 };
+
+let activeSearchEngine = 'baidu';
 
 function escapeHTML(value) {
     return String(value ?? '')
@@ -36,14 +41,31 @@ function saveSearchEngine(engine) {
 
 // 获取保存的搜索引擎
 function getSearchEngine() {
-    return localStorage.getItem('preferred_search_engine') || 'baidu';
+    const savedEngine = localStorage.getItem('preferred_search_engine');
+    return SEARCH_ENGINES[savedEngine] ? savedEngine : 'baidu';
+}
+
+function setSearchEngine(engine) {
+    if (!SEARCH_ENGINES[engine]) return;
+    activeSearchEngine = engine;
+    saveSearchEngine(engine);
+
+    document.querySelectorAll('.search-engine-tab').forEach(button => {
+        const isActive = button.dataset.engine === engine;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', String(isActive));
+    });
+
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.placeholder = `使用 ${SEARCH_ENGINES[engine].label} 搜索...`;
+        searchInput.focus({ preventScroll: true });
+    }
 }
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', () => {
-    // 设置保存的搜索引擎
-    const searchEngine = document.getElementById('searchEngine');
-    searchEngine.value = getSearchEngine();
+    setSearchEngine(getSearchEngine());
 
     // 检查并恢复登录状态
     checkLoginStatus();
@@ -143,16 +165,12 @@ function handleLogout() {
 function handleSearch(event) {
     event.preventDefault();
     const searchInput = document.getElementById('searchInput');
-    const searchEngine = document.getElementById('searchEngine');
     const query = searchInput.value.trim();
 
     if (query) {
-        const url = SEARCH_ENGINES[searchEngine.value].url + encodeURIComponent(query);
+        const url = SEARCH_ENGINES[activeSearchEngine].url + encodeURIComponent(query);
         window.open(url, '_blank');
     }
-
-    // 保存用户选择
-    saveSearchEngine(searchEngine.value);
 }
 
 // 管理员登录相关
