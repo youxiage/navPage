@@ -708,9 +708,18 @@ let pointerSortTimer = null;
 function initializeDragSorting() {
     const navigation = document.getElementById('navigation');
     navigation.onpointerdown = isEditMode ? handleSortPointerDown : null;
-    navigation.onpointermove = isEditMode ? handleSortPointerMove : null;
-    navigation.onpointerup = isEditMode ? handleSortPointerUp : null;
-    navigation.onpointercancel = isEditMode ? handleSortPointerCancel : null;
+}
+
+function attachPointerSortListeners() {
+    document.addEventListener('pointermove', handleSortPointerMove, { passive: false });
+    document.addEventListener('pointerup', handleSortPointerUp);
+    document.addEventListener('pointercancel', handleSortPointerCancel);
+}
+
+function detachPointerSortListeners() {
+    document.removeEventListener('pointermove', handleSortPointerMove);
+    document.removeEventListener('pointerup', handleSortPointerUp);
+    document.removeEventListener('pointercancel', handleSortPointerCancel);
 }
 
 function handleSortPointerDown(event) {
@@ -731,7 +740,7 @@ function handleSortPointerDown(event) {
         startY: event.clientY,
         active: false
     };
-    item.setPointerCapture?.(event.pointerId);
+    attachPointerSortListeners();
     clearTimeout(pointerSortTimer);
     pointerSortTimer = setTimeout(beginPointerSort, 180);
 }
@@ -759,10 +768,13 @@ function handleSortPointerMove(event) {
 
     const { type, item, groupId } = pointerSortState;
     if (type === 'group') {
-        const target = pointedElement.closest('.group');
-        if (!target || target === item) return;
-        const targetRect = target.getBoundingClientRect();
-        target.parentElement.insertBefore(item, event.clientY < targetRect.top + targetRect.height / 2 ? target : target.nextSibling);
+        const navigation = document.getElementById('navigation');
+        const groups = [...navigation.querySelectorAll(':scope > .group')].filter(group => group !== item);
+        const nextGroup = groups.find(group => {
+            const rect = group.getBoundingClientRect();
+            return event.clientY < rect.top + rect.height / 2;
+        });
+        navigation.insertBefore(item, nextGroup || null);
         return;
     }
 
@@ -789,7 +801,7 @@ async function handleSortPointerUp(event) {
 
     const state = pointerSortState;
     pointerSortState = null;
-    state.item.releasePointerCapture?.(event.pointerId);
+    detachPointerSortListeners();
     if (!state.active) return;
 
     event.preventDefault();
@@ -825,6 +837,7 @@ function suppressClickAfterSort(event) {
 
 function handleSortPointerCancel() {
     clearTimeout(pointerSortTimer);
+    detachPointerSortListeners();
     if (!pointerSortState) return;
     pointerSortState.item.classList.remove('dragging');
     pointerSortState = null;
