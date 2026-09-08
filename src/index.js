@@ -40,6 +40,15 @@ function integer(value, fallback = 0) {
   return Number.isInteger(parsed) ? parsed : fallback;
 }
 
+function parseOrderedIds(value) {
+  if (!Array.isArray(value) || value.length > 500) throw new HttpError(400, '排序数据格式不正确');
+  const ids = value.map(Number);
+  if (ids.some((id) => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+    throw new HttpError(400, '排序数据包含无效 ID');
+  }
+  return ids;
+}
+
 async function isAdmin(request, env) {
   const header = request.headers.get('authorization');
   return header?.startsWith('Bearer ') ? verifySessionToken(header.slice(7), env.JWT_SECRET) : false;
@@ -75,6 +84,17 @@ async function handleGroups(request, env, url) {
   }
   validateSameOrigin(request);
   await requireAdmin(request, env);
+  if (request.method === 'POST' && url.pathname === '/api/groups/reorder') {
+    const ids = parseOrderedIds((await readJson(request)).ids);
+    const existingIds = (await env.DB.prepare('SELECT id FROM Groups ORDER BY order_num ASC, id ASC').all()).results.map((group) => group.id);
+    if (ids.length !== existingIds.length || existingIds.some((id) => !ids.includes(id))) {
+      throw new HttpError(400, '分组排序数据与现有分组不一致');
+    }
+    if (ids.length) {
+      await env.DB.batch(ids.map((id, index) => env.DB.prepare('UPDATE Groups SET order_num = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(index + 1, id)));
+    }
+    return json({ success: true });
+  }
   if (request.method === 'POST' && url.pathname === '/api/groups') {
     const body = await readJson(request);
     const name = requireText(body.name, '分组名称', 80);
@@ -140,6 +160,20 @@ async function handleLinks(request, env, url) {
   }
   validateSameOrigin(request);
   await requireAdmin(request, env);
+  if (request.method === 'POST' && url.pathname === '/api/links/reorder') {
+    const body = await readJson(request);
+    const groupId = integer(body.group_id, NaN);
+    const ids = parseOrderedIds(body.ids);
+    if (!Number.isInteger(groupId) || groupId <= 0) throw new HttpError(400, '缺少有效的分组 ID');
+    const existingIds = (await env.DB.prepare('SELECT id FROM Links WHERE group_id = ? ORDER BY order_num ASC, id ASC').bind(groupId).all()).results.map((link) => link.id);
+    if (ids.length !== existingIds.length || existingIds.some((id) => !ids.includes(id))) {
+      throw new HttpError(400, '链接排序数据与当前分组不一致');
+    }
+    if (ids.length) {
+      await env.DB.batch(ids.map((id, index) => env.DB.prepare('UPDATE Links SET order_num = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND group_id = ?').bind(index + 1, id, groupId)));
+    }
+    return json({ success: true });
+  }
   if (request.method === 'POST' && url.pathname === '/api/links') {
     const link = parseLink(await readJson(request));
     if (!await env.DB.prepare('SELECT id FROM Groups WHERE id = ?').bind(link.groupId).first()) throw new HttpError(400, '所选分组不存在');

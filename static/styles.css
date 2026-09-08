@@ -772,6 +772,64 @@ body {
     font-size: 14px;
 }
 
+/* 编辑模式拖动排序 */
+.drag-handle {
+    cursor: grab;
+    touch-action: none;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.group-drag-handle {
+    color: #718096;
+    margin-right: 2px;
+}
+
+.link-drag-handle {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: #edf2f7;
+    color: #3182ce;
+    opacity: 0.78;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.link-drag-handle:hover {
+    background: #e2e8f0;
+    opacity: 1;
+}
+
+.link-card.is-editable .link-info {
+    padding-right: 28px;
+}
+
+.group.dragging,
+.link-card.dragging {
+    opacity: 0.42;
+    border-color: #63b3ed;
+    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.18);
+}
+
+.group.dragging {
+    transform: scale(0.995);
+}
+
+.link-card.dragging {
+    transform: scale(0.98);
+}
+
 /* 新增动画效果 */
 @keyframes gradientBG {
     0% { background-position: 0% 50%; }

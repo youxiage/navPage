@@ -102,6 +102,13 @@ async function deleteGroup(id) {
     });
 }
 
+async function reorderGroups(ids) {
+    return fetchAPI('/groups/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ ids })
+    });
+}
+
 async function createLink(data) {
     return fetchAPI('/links', {
         method: 'POST',
@@ -119,6 +126,13 @@ async function updateLink(id, data) {
 async function deleteLink(id) {
     return fetchAPI(`/links/${id}`, {
         method: 'DELETE'
+    });
+}
+
+async function reorderLinks(groupId, ids) {
+    return fetchAPI('/links/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ group_id: groupId, ids })
     });
 }
 

@@ -485,12 +485,12 @@ async function loadNavigation() {
                 const groupId = `group-${group.id}`;
 
                 html += `
-                    <div id="${groupId}" class="group">
+                    <div id="${groupId}" class="group" data-group-id="${group.id}">
                         <div class="group-title">
                             ${getGroupTitle(group)}
                             ${getGroupActions(group.id)}
                         </div>
-                        <div class="links">
+                        <div class="links" data-group-id="${group.id}">
                             ${groupLinks.map(link => getLinkCard(link)).join('')}
                         </div>
                     </div>
@@ -513,6 +513,8 @@ async function loadNavigation() {
         // 更新内容
         navigationElement.innerHTML = html;
         groupNavElement.innerHTML = navHtml;
+
+        initializeDragSorting();
 
         // 加载图标
         await loadIcons();
@@ -545,38 +547,6 @@ function updateActiveNavItem() {
             highlightNavItem(navItems[index]);
         }
     });
-}
-
-// 创建链接卡片
-function createLinkCard(link) {
-    const safeLinkUrl = safeHttpUrl(link.url);
-    const domain = safeLinkUrl === '#' ? 'example.com' : new URL(link.url).hostname;
-    const defaultIcon = `https://icon.horse/icon/${domain}`;
-    const safeIconUrl = safeHttpUrl(link.logo || defaultIcon, defaultIcon);
-
-    return `
-        <div class="link-card">
-            <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-content">
-                <img class="link-icon" src="${safeIconUrl}"
-                     alt="" onerror="this.src='https://icon.horse/icon/example.com'">
-                <div class="link-card-content">
-                    <div class="link-title">${escapeHTML(link.name)}</div>
-                    ${link.description ? `<div class="link-description">${escapeHTML(link.description)}</div>` : ''}
-                </div>
-            </a>
-            <div class="link-url-tooltip">${escapeHTML(link.url)}</div>
-            ${isEditMode ? `
-                <div class="link-actions">
-                    <button onclick="openLinkModal(${link.id})"><i class="fas fa-edit"></i> 编辑</button>
-                    <button onclick="deleteLinkConfirm(${link.id})"><i class="fas fa-trash"></i> 删除</button>
-                    <div class="order-actions">
-                        <button onclick="moveLinkUp(${link.id}, ${link.group_id})"><i class="fas fa-arrow-up"></i></button>
-                        <button onclick="moveLinkDown(${link.id}, ${link.group_id})"><i class="fas fa-arrow-down"></i></button>
-                    </div>
-                </div>
-            ` : ''}
-        </div>
-    `;
 }
 
 // 提示消息
@@ -731,73 +701,105 @@ async function deleteLinkConfirm(linkId) {
     }
 }
 
-// 链接排序功能
-async function moveLinkUp(linkId, groupId) {
-    let toast;
-    const links = (await fetchLinks()).filter(l => l.group_id === groupId);
-    const currentIndex = links.findIndex(l => l.id === linkId);
-    if (currentIndex === 0) {
-        if (toast) toast.remove();
-        showToast('已经是第一个链接了', 'error');
+let dragSortState = null;
+
+function initializeDragSorting() {
+    const navigation = document.getElementById('navigation');
+    navigation.ondragover = null;
+    navigation.ondrop = null;
+
+    if (!isEditMode) return;
+
+    navigation.querySelectorAll('.drag-handle').forEach(handle => {
+        handle.addEventListener('dragstart', handleSortDragStart);
+        handle.addEventListener('dragend', handleSortDragEnd);
+    });
+    navigation.ondragover = handleSortDragOver;
+    navigation.ondrop = handleSortDrop;
+}
+
+function handleSortDragStart(event) {
+    const handle = event.currentTarget;
+    const type = handle.dataset.dragType;
+    const item = type === 'group' ? handle.closest('.group') : handle.closest('.link-card');
+    if (!item) return;
+
+    dragSortState = {
+        type,
+        item,
+        groupId: type === 'link' ? Number(item.dataset.groupId) : null
+    };
+    item.classList.add('dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `${type}:${type === 'group' ? item.dataset.groupId : item.dataset.linkId}`);
+}
+
+function handleSortDragOver(event) {
+    if (!dragSortState) return;
+
+    const { type, item, groupId } = dragSortState;
+    if (type === 'group') {
+        const target = event.target.closest('.group');
+        if (!target || target === item) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const targetRect = target.getBoundingClientRect();
+        target.parentElement.insertBefore(item, event.clientY < targetRect.top + targetRect.height / 2 ? target : target.nextSibling);
         return;
     }
 
-    toast = showToast('正在更新顺序...', 'loading');
-    const currentLink = links[currentIndex];
-    const prevLink = links[currentIndex - 1];
-    try {
-        await updateLink(currentLink.id, {
-            ...currentLink,
-            order_num: prevLink.order_num
-        });
-        await updateLink(prevLink.id, {
-            ...prevLink,
-            order_num: currentLink.order_num
-        });
+    const linksContainer = event.target.closest('.links');
+    if (!linksContainer || Number(linksContainer.dataset.groupId) !== groupId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
 
+    const target = event.target.closest('.link-card');
+    if (!target || target === item) {
+        if (!target) linksContainer.appendChild(item);
+        return;
+    }
+
+    const targetRect = target.getBoundingClientRect();
+    const isSameRow = Math.abs(event.clientY - (targetRect.top + targetRect.height / 2)) < targetRect.height / 3;
+    const insertBefore = isSameRow
+        ? event.clientX < targetRect.left + targetRect.width / 2
+        : event.clientY < targetRect.top + targetRect.height / 2;
+    linksContainer.insertBefore(item, insertBefore ? target : target.nextSibling);
+}
+
+async function handleSortDrop(event) {
+    if (!dragSortState) return;
+    event.preventDefault();
+
+    const state = dragSortState;
+    dragSortState = null;
+    state.item.classList.remove('dragging');
+    const toast = showToast('正在保存排序...', 'loading');
+
+    try {
+        if (state.type === 'group') {
+            const ids = [...document.querySelectorAll('#navigation > .group')].map(group => Number(group.dataset.groupId));
+            await reorderGroups(ids);
+        } else {
+            const linksContainer = document.querySelector(`.links[data-group-id="${state.groupId}"]`);
+            const ids = [...linksContainer.querySelectorAll('.link-card')].map(link => Number(link.dataset.linkId));
+            await reorderLinks(state.groupId, ids);
+        }
         toast.remove();
-        showToast('链接顺序已更新');
+        showToast('排序已保存');
         await loadNavigation();
     } catch (error) {
         toast.remove();
-        showToast('更新顺序失败: ' + error.message, 'error');
-    } finally {
-        if (toast) toast.remove();
+        showToast('保存排序失败: ' + error.message, 'error');
+        await loadNavigation();
     }
 }
 
-async function moveLinkDown(linkId, groupId) {
-    let toast;
-    const links = (await fetchLinks()).filter(l => l.group_id === groupId);
-    const currentIndex = links.findIndex(l => l.id === linkId);
-    if (currentIndex === links.length - 1) {
-        if (toast) toast.remove();
-        showToast('已经是最后一个链接了', 'error');
-        return;
-    }
-
-    toast = showToast('正在更新顺序...', 'loading');
-    const currentLink = links[currentIndex];
-    const nextLink = links[currentIndex + 1];
-    try {
-        await updateLink(currentLink.id, {
-            ...currentLink,
-            order_num: nextLink.order_num
-        });
-        await updateLink(nextLink.id, {
-            ...nextLink,
-            order_num: currentLink.order_num
-        });
-
-        toast.remove();
-        showToast('链接顺序已更新');
-        await loadNavigation();
-    } catch (error) {
-        toast.remove();
-        showToast('更新顺序失败: ' + error.message, 'error');
-    } finally {
-        if (toast) toast.remove();
-    }
+function handleSortDragEnd() {
+    if (!dragSortState) return;
+    dragSortState.item.classList.remove('dragging');
+    dragSortState = null;
+    loadNavigation();
 }
 
 // 自动获取网页信息
@@ -840,89 +842,12 @@ async function autoFillLinkInfo() {
     }
 }
 
-// 分组排序功能
-async function moveGroupUp(groupId) {
-    let toast;
-    const groups = await fetchGroups();
-    const currentIndex = groups.findIndex(g => g.id === groupId);
-    if (currentIndex === 0) {
-        if (toast) toast.remove();
-        showToast('已经是第一个分组了', 'error');
-        return;
-    }
-
-    toast = showToast('正在更新顺序...', 'loading');
-    const currentGroup = groups[currentIndex];
-    const prevGroup = groups[currentIndex - 1];
-    try {
-        await updateGroup(currentGroup.id, {
-            ...currentGroup,
-            order_num: prevGroup.order_num
-        });
-        await updateGroup(prevGroup.id, {
-            ...prevGroup,
-            order_num: currentGroup.order_num
-        });
-
-        toast.remove();
-        showToast('分组顺序已更新');
-        await loadNavigation();
-    } catch (error) {
-        toast.remove();
-        showToast('更新顺序失败: ' + error.message, 'error');
-    } finally {
-        if (toast) toast.remove();
-    }
-}
-
-async function moveGroupDown(groupId) {
-    let toast;
-    const groups = await fetchGroups();
-    const currentIndex = groups.findIndex(g => g.id === groupId);
-    if (currentIndex === groups.length - 1) {
-        if (toast) toast.remove();
-        showToast('已经是最后一个分组了', 'error');
-        return;
-    }
-
-    toast = showToast('正在更新顺序...', 'loading');
-    const currentGroup = groups[currentIndex];
-    const nextGroup = groups[currentIndex + 1];
-    try {
-        await updateGroup(currentGroup.id, {
-            ...currentGroup,
-            order_num: nextGroup.order_num
-        });
-        await updateGroup(nextGroup.id, {
-            ...nextGroup,
-            order_num: currentGroup.order_num
-        });
-
-        toast.remove();
-        showToast('分组顺序已更新');
-        await loadNavigation();
-    } catch (error) {
-        toast.remove();
-        showToast('更新顺序失败: ' + error.message, 'error');
-    } finally {
-        if (toast) toast.remove();
-    }
-}
-
 // 生成分组操作按钮
 function getGroupActions(groupId) {
     if (!isEditMode) return '';
 
     return `
         <div class="group-actions">
-            <div class="order-actions">
-                <button onclick="moveGroupUp(${groupId})" title="上移">
-                    <i class="fas fa-arrow-up"></i>
-                </button>
-                <button onclick="moveGroupDown(${groupId})" title="下移">
-                    <i class="fas fa-arrow-down"></i>
-                </button>
-            </div>
             <button onclick="openGroupModal(${groupId})" title="编辑">
                 <i class="fas fa-edit"></i>
             </button>
@@ -937,6 +862,12 @@ function getGroupActions(groupId) {
 function getGroupTitle(group) {
     return `
         <div class="group-title-left">
+            ${isEditMode ? `
+                <button type="button" class="drag-handle group-drag-handle" draggable="true"
+                        data-drag-type="group" title="拖动分类排序" aria-label="拖动分类排序">
+                    <i class="fas fa-grip-vertical"></i>
+                </button>
+            ` : ''}
             ${escapeHTML(group.name)}
             ${group.is_private ?
                 `<i class="fas fa-lock group-privacy-icon" title="私密分组"></i>` :
@@ -958,7 +889,15 @@ function getLinkCard(link) {
     `.trim());
 
     return `
-        <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-card">
+        <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-card${isEditMode ? ' is-editable' : ''}"
+           data-link-id="${link.id}" data-group-id="${link.group_id}">
+            ${isEditMode ? `
+                <button type="button" class="drag-handle link-drag-handle" draggable="true"
+                        data-drag-type="link" title="拖动链接排序" aria-label="拖动链接排序"
+                        onclick="event.preventDefault();">
+                    <i class="fas fa-grip-vertical"></i>
+                </button>
+            ` : ''}
             <div class="link-info">
                 <div class="link-icon">
                     <img src="${iconSrc}"
@@ -976,14 +915,6 @@ function getLinkCard(link) {
             </div>
             ${isEditMode ? `
                 <div class="link-actions" onclick="event.preventDefault();">
-                    <div class="order-actions">
-                        <button onclick="moveLinkUp(${link.id}, ${link.group_id})" title="上移">
-                            <i class="fas fa-arrow-up"></i>
-                        </button>
-                        <button onclick="moveLinkDown(${link.id}, ${link.group_id})" title="下移">
-                            <i class="fas fa-arrow-down"></i>
-                        </button>
-                    </div>
                     <button onclick="openLinkModal(${link.id})" title="编辑">
                         <i class="fas fa-edit"></i>
                     </button>
