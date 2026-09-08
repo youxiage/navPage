@@ -51,6 +51,15 @@ body {
     gap: 8px;
 }
 
+.sidebar-admin {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+}
+
 .nav-item {
     padding: 6px 10px;
     font-size: 14px;
@@ -88,7 +97,7 @@ body {
 
 /* 搜索栏样式 */
 .search-form {
-    width: min(600px, 100%);
+    width: 100%;
 }
 
 .search-engine-tabs {
@@ -782,7 +791,8 @@ body {
     }
 
     .nav-sidebar {
-        display: none;
+        position: static;
+        display: block;
     }
 
     .header {
@@ -1039,7 +1049,8 @@ body {
     }
 
     .nav-sidebar {
-        display: none;
+        position: static;
+        display: block;
     }
 
     .header {
@@ -1141,32 +1152,6 @@ body {
     }
 }
 
-/* GitHub 链接样式 */
-.header-actions {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-.github-link {
-    color: #4a5568;
-    font-size: 24px;
-    text-decoration: none;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-}
-
-.github-link:hover {
-    color: #2d3748;
-    transform: translateY(-2px);
-    background: #edf2f7;
-}
-
 .link-card {
     position: relative;
     display: block;
@@ -1246,8 +1231,8 @@ body {
 /* 管理员按钮 */
 #adminButton {
     display: flex;
+    flex-direction: column;
     gap: 10px;
-    align-items: center;
 }
 
 .admin-button {
@@ -1261,7 +1246,9 @@ body {
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
+    width: 100%;
 }
 
 /* 不同按钮的颜色 */

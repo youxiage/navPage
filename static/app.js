@@ -112,20 +112,20 @@ function updateAdminButton() {
     if (isAdmin) {
         if (isEditMode) {
             adminButton.innerHTML = `
-                <button class="admin-button" onclick="handleLogout()">
-                    <i class="fas fa-sign-out-alt"></i> 退出登录
-                </button>
                 <button class="admin-button" onclick="exitEditMode()">
                     <i class="fas fa-times"></i> 退出编辑
+                </button>
+                <button class="admin-button" onclick="handleLogout()">
+                    <i class="fas fa-sign-out-alt"></i> 退出登录
                 </button>
             `;
         } else {
             adminButton.innerHTML = `
-                <button class="admin-button" onclick="handleLogout()">
-                    <i class="fas fa-sign-out-alt"></i> 退出登录
-                </button>
                 <button class="admin-button" onclick="enterEditMode()">
                     <i class="fas fa-edit"></i> 编辑
+                </button>
+                <button class="admin-button" onclick="handleLogout()">
+                    <i class="fas fa-sign-out-alt"></i> 退出登录
                 </button>
             `;
         }

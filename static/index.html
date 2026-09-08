@@ -30,12 +30,18 @@
         <div class="nav-sidebar">
             <div class="nav-title">目录导航</div>
             <div id="groupNav" class="nav-list"></div>
+            <div id="adminButton" class="sidebar-admin">
+                <button class="admin-button" onclick="openAdminModal()">
+                    <i class="fas fa-user-lock"></i>
+                    管理员登录
+                </button>
+            </div>
         </div>
 
         <!-- 主要内容区 -->
         <div class="main-content">
             <div class="page-header">
-                <!-- 搜索栏和管理员按钮 -->
+                <!-- 搜索栏 -->
                 <div class="header">
                     <form class="search-form" onsubmit="handleSearch(event)">
                         <div class="search-engine-tabs" role="group" aria-label="选择搜索引擎">
@@ -50,20 +56,6 @@
                             <input type="text" id="searchInput" placeholder="搜索...">
                         </div>
                     </form>
-                    <div class="header-actions">
-                        <a href="https://github.com/youxiage/navPage"
-                           target="_blank"
-                           class="github-link"
-                           title="查看源码">
-                            <i class="fab fa-github"></i>
-                        </a>
-                        <div id="adminButton">
-                            <button class="admin-button" onclick="openAdminModal()">
-                                <i class="fas fa-user-lock"></i>
-                                管理员登录
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
 
