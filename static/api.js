@@ -1,11 +1,15 @@
-// 从全局变量中获取 API 地址，并添加 /api 路径
-const API_BASE_URL = 'https://my-page-api.yvyan.top/api';
+// 页面与 API 由同一个 Cloudflare Worker 提供。
+const API_BASE_URL = '/api';
 let token = null;
 
 // Token 管理
 function setToken(newToken) {
     token = newToken;
-    localStorage.setItem('admin_token', token);
+    if (newToken) {
+        localStorage.setItem('admin_token', newToken);
+    } else {
+        localStorage.removeItem('admin_token');
+    }
 }
 
 function getToken() {
@@ -34,7 +38,7 @@ async function fetchAPI(endpoint, options = {}) {
     });
 
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'API请求失败');
     }
 
@@ -51,12 +55,12 @@ async function login(password) {
             },
             body: JSON.stringify({ password })
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || '登录失败');
         }
-        
+
         const data = await response.json();
         if (data.token) {
             setToken(data.token);
@@ -134,4 +138,4 @@ async function fetchWebInfo(url) {
     }
 
     return response.json();
-} 
+}

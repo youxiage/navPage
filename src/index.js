@@ -1,482 +1,245 @@
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
+import { createSessionToken, normalizeHttpUrl, secretsEqual, verifySessionToken } from './security.js';
+
+const HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
+class HttpError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
 }
 
-// Base64 编码
-function base64Encode(str) {
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: HEADERS });
 }
 
-// Base64 解码
-function base64Decode(str) {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4) str += '=';
-  return atob(str);
-}
-
-// 生成 JWT token
-async function generateToken(env) {
-  // 简单的 payload
-  const payload = {
-    exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24小时过期
-    iat: Math.floor(Date.now() / 1000), // 签发时间
-    admin: true
-  };
-
-  // 编码 payload
-  const encodedPayload = base64Encode(JSON.stringify(payload));
-  
-  // 使用密钥签名
-  const signature = base64Encode(env.JWT_SECRET + encodedPayload);
-  
-  // 返回 token
-  return `${encodedPayload}.${signature}`;
-}
-
-// 验证 JWT token
-async function verifyToken(token, env) {
-  try {
-    // 分割 payload 和签名
-    const [encodedPayload, signature] = token.split('.');
-
-    // 验证签名是否匹配
-    const expectedSignature = base64Encode(env.JWT_SECRET + encodedPayload);
-    if (signature !== expectedSignature) {
-      return false;
-    }
-
-    // 解码 payload
-    const payload = JSON.parse(base64Decode(encodedPayload));
-
-    // 检查是否过期
-    if (payload.exp < Math.floor(Date.now() / 1000)) {
-      return false;
-    }
-
-    return payload.admin === true;
-  } catch (error) {
-    return false;
+async function readJson(request) {
+  if (!request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    throw new HttpError(415, '请求必须使用 JSON 格式');
   }
+  try { return await request.json(); } catch { throw new HttpError(400, 'JSON 内容无效'); }
 }
 
-// 验证管理员权限
-async function verifyAdmin(request, env) {
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return false;
-  }
-  const token = authHeader.split(' ')[1];
-  return await verifyToken(token, env);
+function requireText(value, label, maxLength) {
+  if (typeof value !== 'string' || !value.trim()) throw new HttpError(400, `${label}不能为空`);
+  const normalized = value.trim();
+  if (normalized.length > maxLength) throw new HttpError(400, `${label}内容过长`);
+  return normalized;
 }
 
-// 处理登录请求
+function optionalText(value, label, maxLength) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || value.length > maxLength) throw new HttpError(400, `${label}格式不正确`);
+  return value.trim() || null;
+}
+
+function integer(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallback;
+}
+
+async function isAdmin(request, env) {
+  const header = request.headers.get('authorization');
+  return header?.startsWith('Bearer ') ? verifySessionToken(header.slice(7), env.JWT_SECRET) : false;
+}
+
+async function requireAdmin(request, env) {
+  if (!await isAdmin(request, env)) throw new HttpError(401, '需要管理员权限');
+}
+
+function validateSameOrigin(request) {
+  const origin = request.headers.get('origin');
+  if (origin && origin !== new URL(request.url).origin) throw new HttpError(403, '不允许跨站请求');
+}
+
 async function handleLogin(request, env) {
-  if (request.method !== 'POST') {
-    return new Response('方法不允许', { status: 405 });
-  }
-
-  const { password } = await request.json();
-  if (password !== env.ADMIN_PASSWORD) {
-    return new Response(JSON.stringify({ error: '密码错误' }), {
-      status: 401,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders()
-      }
-    });
-  }
-
-  const token = await generateToken(env);
-  return new Response(JSON.stringify({ token }), {
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders()
-    }
-  });
+  if (request.method !== 'POST') throw new HttpError(405, '方法不允许');
+  validateSameOrigin(request);
+  const clientKey = request.headers.get('cf-connecting-ip') || 'unknown';
+  const rateLimit = await env.LOGIN_RATE_LIMITER.limit({ key: clientKey });
+  if (!rateLimit.success) throw new HttpError(429, '登录尝试过于频繁，请稍后再试');
+  const { password } = await readJson(request);
+  if (typeof password !== 'string' || !await secretsEqual(password, env.ADMIN_PASSWORD)) throw new HttpError(401, '密码错误');
+  return json({ token: await createSessionToken(env.JWT_SECRET) });
 }
 
-// 处理 token 验证请求
-async function handleVerify(request, env) {
-  const isAdmin = await verifyAdmin(request, env);
-  if (!isAdmin) {
-    return new Response(JSON.stringify({ error: 'token无效' }), {
-      status: 401,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders()
-      }
-    });
+async function handleGroups(request, env, url) {
+  const id = Number(url.pathname.match(/^\/api\/groups\/(\d+)$/)?.[1] || 0);
+  if (request.method === 'GET' && url.pathname === '/api/groups') {
+    const query = await isAdmin(request, env)
+      ? 'SELECT * FROM Groups ORDER BY order_num ASC, id ASC'
+      : 'SELECT * FROM Groups WHERE is_private = FALSE ORDER BY order_num ASC, id ASC';
+    return json((await env.DB.prepare(query).all()).results);
   }
-  return new Response(JSON.stringify({ valid: true }), {
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders()
-    }
-  });
+  validateSameOrigin(request);
+  await requireAdmin(request, env);
+  if (request.method === 'POST' && url.pathname === '/api/groups') {
+    const body = await readJson(request);
+    const name = requireText(body.name, '分组名称', 80);
+    const order = integer(body.order_num);
+    const isPrivate = Boolean(body.is_private);
+    const result = await env.DB.prepare('INSERT INTO Groups (name, order_num, is_private) VALUES (?, ?, ?)')
+      .bind(name, order, isPrivate ? 1 : 0).run();
+    return json({ id: result.meta.last_row_id, name, order_num: order, is_private: isPrivate }, 201);
+  }
+  if (!id) throw new HttpError(400, '缺少有效的分组 ID');
+  if (request.method === 'PUT') {
+    const body = await readJson(request);
+    const name = requireText(body.name, '分组名称', 80);
+    const order = integer(body.order_num);
+    const isPrivate = Boolean(body.is_private);
+    const result = await env.DB.prepare('UPDATE Groups SET name = ?, order_num = ?, is_private = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(name, order, isPrivate ? 1 : 0, id).run();
+    if (!result.meta.changes) throw new HttpError(404, '分组不存在');
+    return json({ id, name, order_num: order, is_private: isPrivate });
+  }
+  if (request.method === 'DELETE') {
+    const group = await env.DB.prepare('SELECT order_num FROM Groups WHERE id = ?').bind(id).first();
+    if (!group) throw new HttpError(404, '分组不存在');
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM Links WHERE group_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM Groups WHERE id = ?').bind(id),
+      env.DB.prepare('UPDATE Groups SET order_num = order_num - 1 WHERE order_num > ?').bind(group.order_num),
+    ]);
+    return json({ success: true });
+  }
+  throw new HttpError(405, '方法不允许');
 }
 
-async function handleGroups(request, env) {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  const id = path.match(/\/api\/groups\/(\d+)/)?.[1];
-  const isAdmin = await verifyAdmin(request, env);
-
-  const headers = {
-    ...corsHeaders(),
-    'Content-Type': 'application/json',
+function parseLink(body) {
+  let url;
+  let logo = null;
+  try {
+    url = normalizeHttpUrl(body.url);
+    if (body.logo) logo = normalizeHttpUrl(body.logo);
+  } catch (error) { throw new HttpError(400, error.message); }
+  const groupId = integer(body.group_id, NaN);
+  if (!Number.isInteger(groupId) || groupId <= 0) throw new HttpError(400, '请选择有效分组');
+  return {
+    name: requireText(body.name, '链接名称', 120), url, logo,
+    description: optionalText(body.description, '链接描述', 500),
+    groupId, order: integer(body.order_num),
   };
-
-  try {
-    // GET /api/groups - 获取所有分组
-    if (request.method === 'GET' && path === '/api/groups') {
-      let query = 'SELECT * FROM Groups';
-      if (!isAdmin) {
-        query += ' WHERE is_private = FALSE';
-      }
-      query += ' ORDER BY order_num ASC';
-
-      const groups = await env.DB.prepare(query).all();
-      return new Response(JSON.stringify(groups.results), { headers });
-    }
-
-    // 以下操作需要管理员权限
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: '需要管理员权限' }), {
-        status: 401,
-        headers
-      });
-    }
-
-    // POST /api/groups - 创建新分组
-    if (request.method === 'POST' && path === '/api/groups') {
-      const { name, order_num, is_private } = await request.json();
-      
-      const result = await env.DB.prepare(
-        'INSERT INTO Groups (name, order_num, is_private) VALUES (?, ?, ?)'
-      ).bind(name, order_num || 0, is_private || false)
-        .run();
-
-      return new Response(JSON.stringify({
-        id: result.lastRowId,
-        name,
-        order_num,
-        is_private
-      }), { headers });
-    }
-
-    // 需要ID的操作
-    if (!id) {
-      return new Response('缺少ID参数', { status: 400, headers });
-    }
-
-    // PUT /api/groups/:id - 更新分组
-    if (request.method === 'PUT') {
-      const { name, order_num, is_private } = await request.json();
-      
-      await env.DB.prepare(
-        'UPDATE Groups SET name = ?, order_num = ?, is_private = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).bind(name, order_num || 0, is_private || false, id)
-        .run();
-
-      return new Response(JSON.stringify({
-        id: parseInt(id),
-        name,
-        order_num: order_num || 0,
-        is_private
-      }), { headers });
-    }
-
-    // DELETE /api/groups/:id - 删除分组
-    if (request.method === 'DELETE') {
-      // 开始一个事务
-      await env.DB.prepare('BEGIN').run();
-      
-      try {
-        // 获取要删除的分组的 order_num
-        const group = await env.DB.prepare('SELECT order_num FROM Groups WHERE id = ?')
-          .bind(id)
-          .first();
-        
-        if (!group) {
-          throw new Error('分组不存在');
-        }
-
-        // 删除分组内的所有链接
-        await env.DB.prepare('DELETE FROM Links WHERE group_id = ?')
-          .bind(id)
-          .run();
-
-        // 删除分组
-        await env.DB.prepare('DELETE FROM Groups WHERE id = ?')
-          .bind(id)
-          .run();
-
-        // 更新其他分组的序号
-        await env.DB.prepare(`
-          UPDATE Groups 
-          SET order_num = order_num - 1 
-          WHERE order_num > ?
-        `).bind(group.order_num)
-          .run();
-
-        // 提交事务
-        await env.DB.prepare('COMMIT').run();
-
-        return new Response(JSON.stringify({ success: true }), { headers });
-      } catch (error) {
-        // 如果出错，回滚事务
-        await env.DB.prepare('ROLLBACK').run();
-        throw error;
-      }
-    }
-
-    return new Response('方法不允许', { status: 405, headers });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { 
-      status: 400, 
-      headers 
-    });
-  }
 }
 
-async function handleLinks(request, env) {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  const id = path.match(/\/api\/links\/(\d+)/)?.[1];
-  const groupId = url.searchParams.get('group_id');
-  const isAdmin = await verifyAdmin(request, env);
-
-  const headers = {
-    ...corsHeaders(),
-    'Content-Type': 'application/json',
-  };
-
-  try {
-    // GET /api/links - 获取所有链接
-    if (request.method === 'GET' && path === '/api/links') {
-      let query = `
-        SELECT Links.*, Groups.name as group_name 
-        FROM Links 
-        LEFT JOIN Groups ON Links.group_id = Groups.id
-      `;
-      
-      const params = [];
-      const conditions = [];
-
-      if (!isAdmin) {
-        conditions.push('Groups.is_private = FALSE');
-      }
-      
-      if (groupId) {
-        conditions.push('Links.group_id = ?');
-        params.push(groupId);
-      }
-
-      if (conditions.length > 0) {
-        query += ' WHERE ' + conditions.join(' AND ');
-      }
-      
-      query += ' ORDER BY Links.order_num ASC';
-
-      const links = await env.DB.prepare(query)
-        .bind(...params)
-        .all();
-
-      return new Response(JSON.stringify(links.results), { headers });
+async function handleLinks(request, env, url) {
+  const id = Number(url.pathname.match(/^\/api\/links\/(\d+)$/)?.[1] || 0);
+  if (request.method === 'GET' && url.pathname === '/api/links') {
+    const conditions = await isAdmin(request, env) ? [] : ['Groups.is_private = FALSE'];
+    const bindings = [];
+    if (url.searchParams.has('group_id')) {
+      conditions.push('Links.group_id = ?');
+      bindings.push(integer(url.searchParams.get('group_id'), -1));
     }
-
-    // 以下操作需要管理员权限
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: '需要管理员权限' }), {
-        status: 401,
-        headers
-      });
-    }
-
-    // POST /api/links - 创建新链接
-    if (request.method === 'POST' && path === '/api/links') {
-      const { name, url, logo, description, group_id, order_num } = await request.json();
-      
-      // 获取当前分组中的最大 order_num
-      let currentMaxOrder = 0;
-      if (group_id) {
-        const result = await env.DB.prepare(`
-          SELECT MAX(order_num) as max_order 
-          FROM Links 
-          WHERE group_id = ?
-        `).bind(group_id).all();
-        currentMaxOrder = result.results[0].max_order || 0;
-      }
-      
-      const result = await env.DB.prepare(`
-        INSERT INTO Links (name, url, logo, description, group_id, order_num) 
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).bind(
-        name,
-        url,
-        logo || null,
-        description || null,
-        group_id || null,
-        order_num || (currentMaxOrder + 10)
-      ).run();
-
-      return new Response(JSON.stringify({
-        id: result.lastRowId,
-        name,
-        url,
-        logo,
-        description,
-        group_id,
-        order_num
-      }), { headers });
-    }
-
-    // 需要ID的操作
-    if (!id) {
-      return new Response('缺少ID参数', { status: 400, headers });
-    }
-
-    // PUT /api/links/:id - 更新链接
-    if (request.method === 'PUT') {
-      const { name, url, logo, description, group_id, order_num } = await request.json();
-      
-      await env.DB.prepare(`
-        UPDATE Links 
-        SET name = ?, url = ?, logo = ?, description = ?, 
-            group_id = ?, order_num = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).bind(
-        name,
-        url,
-        logo || null,
-        description || null,
-        group_id || null,
-        order_num || 0,
-        id
-      ).run();
-
-      return new Response(JSON.stringify({
-        id: parseInt(id),
-        name,
-        url,
-        logo,
-        description,
-        group_id,
-        order_num
-      }), { headers });
-    }
-
-    // DELETE /api/links/:id - 删除链接
-    if (request.method === 'DELETE') {
-      await env.DB.prepare(
-        'DELETE FROM Links WHERE id = ?'
-      ).bind(id)
-        .run();
-
-      return new Response(JSON.stringify({ success: true }), { headers });
-    }
-
-    return new Response('方法不允许', { status: 405, headers });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { 
-      status: 400, 
-      headers 
-    });
+    let query = 'SELECT Links.*, Groups.name AS group_name FROM Links LEFT JOIN Groups ON Links.group_id = Groups.id';
+    if (conditions.length) query += ` WHERE ${conditions.join(' AND ')}`;
+    query += ' ORDER BY Links.order_num ASC, Links.id ASC';
+    return json((await env.DB.prepare(query).bind(...bindings).all()).results);
   }
+  validateSameOrigin(request);
+  await requireAdmin(request, env);
+  if (request.method === 'POST' && url.pathname === '/api/links') {
+    const link = parseLink(await readJson(request));
+    if (!await env.DB.prepare('SELECT id FROM Groups WHERE id = ?').bind(link.groupId).first()) throw new HttpError(400, '所选分组不存在');
+    if (!link.order) {
+      const maximum = await env.DB.prepare('SELECT COALESCE(MAX(order_num), 0) AS value FROM Links WHERE group_id = ?').bind(link.groupId).first();
+      link.order = Number(maximum.value) + 1;
+    }
+    const result = await env.DB.prepare('INSERT INTO Links (name, url, logo, description, group_id, order_num) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(link.name, link.url, link.logo, link.description, link.groupId, link.order).run();
+    return json({ id: result.meta.last_row_id, name: link.name, url: link.url, logo: link.logo, description: link.description, group_id: link.groupId, order_num: link.order }, 201);
+  }
+  if (!id) throw new HttpError(400, '缺少有效的链接 ID');
+  if (request.method === 'PUT') {
+    const link = parseLink(await readJson(request));
+    const result = await env.DB.prepare('UPDATE Links SET name = ?, url = ?, logo = ?, description = ?, group_id = ?, order_num = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(link.name, link.url, link.logo, link.description, link.groupId, link.order, id).run();
+    if (!result.meta.changes) throw new HttpError(404, '链接不存在');
+    return json({ id, name: link.name, url: link.url, logo: link.logo, description: link.description, group_id: link.groupId, order_num: link.order });
+  }
+  if (request.method === 'DELETE') {
+    const result = await env.DB.prepare('DELETE FROM Links WHERE id = ?').bind(id).run();
+    if (!result.meta.changes) throw new HttpError(404, '链接不存在');
+    return json({ success: true });
+  }
+  throw new HttpError(405, '方法不允许');
 }
 
-// 抓取网页信息
-async function fetchWebsiteInfo(url) {
-  try {
-    const response = await fetch(url);
-    const html = await response.text();
-    
-    // 使用简单的正则表达式提取信息
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const descriptionMatch = html.match(/<meta[^>]*name="description"[^>]*content="([^"]*)"[^>]*>/i) 
-      || html.match(/<meta[^>]*content="([^"]*)"[^>]*name="description"[^>]*>/i);
-    
-    return {
-      title: titleMatch ? titleMatch[1].trim() : '',
-      description: descriptionMatch ? descriptionMatch[1].trim() : ''
-    };
-  } catch (error) {
-    throw new Error('无法获取网页信息');
-  }
+function decodeHtmlText(value) {
+  return value.replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#(?:0*39|x0*27);/gi, "'").replace(/\s+/g, ' ').trim();
 }
 
-// 处理网页信息获取请求
-async function handleFetchInfo(request) {
-  if (request.method !== 'POST') {
-    return new Response('方法不允许', { status: 405 });
+async function readLimitedText(response, limit = 256 * 1024) {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) { await reader.cancel(); throw new HttpError(413, '网页内容过大'); }
+    chunks.push(value);
   }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
 
-  try {
-    const { url } = await request.json();
-    const info = await fetchWebsiteInfo(url);
-    
-    return new Response(JSON.stringify(info), {
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders()
-      }
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders()
-      }
-    });
+async function fetchWebsiteInfo(inputUrl) {
+  let target;
+  try { target = normalizeHttpUrl(inputUrl, { blockPrivate: true }); }
+  catch (error) { throw new HttpError(400, error.message); }
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    const response = await fetch(target, { redirect: 'manual', headers: { Accept: 'text/html,application/xhtml+xml' }, signal: AbortSignal.timeout(6000) });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location');
+      if (!location || redirects === 3) throw new HttpError(400, '网页重定向次数过多');
+      try { target = normalizeHttpUrl(new URL(location, target).toString(), { blockPrivate: true }); }
+      catch (error) { throw new HttpError(400, error.message); }
+      continue;
+    }
+    if (!response.ok) throw new HttpError(400, '目标网页无法访问');
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) throw new HttpError(400, '目标地址不是网页');
+    const html = await readLimitedText(response);
+    const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
+    const description = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)["'][^>]*>/i)?.[1]
+      || html.match(/<meta[^>]*content=["']([^"']*)["'][^>]*name=["']description["'][^>]*>/i)?.[1] || '';
+    return { title: decodeHtmlText(title).slice(0, 120), description: decodeHtmlText(description).slice(0, 500) };
   }
+  throw new HttpError(400, '无法获取网页信息');
+}
+
+async function handleFetchInfo(request, env) {
+  if (request.method !== 'POST') throw new HttpError(405, '方法不允许');
+  validateSameOrigin(request);
+  await requireAdmin(request, env);
+  return json(await fetchWebsiteInfo((await readJson(request)).url));
 }
 
 export default {
   async fetch(request, env) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: corsHeaders(),
-      });
-    }
-
     const url = new URL(request.url);
-    const path = url.pathname;
-
     try {
-      if (path === '/api/login') {
-        return await handleLogin(request, env);
-      } else if (path === '/api/fetch-info') {
-        return await handleFetchInfo(request);
-      } else if (path === '/api/verify') {
-        return await handleVerify(request, env);
-      } else if (path.startsWith('/api/groups')) {
-        return await handleGroups(request, env);
-      } else if (path.startsWith('/api/links')) {
-        return await handleLinks(request, env);
+      if (url.pathname === '/api/login') return await handleLogin(request, env);
+      if (url.pathname === '/api/verify') {
+        if (request.method !== 'GET') throw new HttpError(405, '方法不允许');
+        await requireAdmin(request, env);
+        return json({ valid: true });
       }
-
-      return new Response('无效的请求路径', { 
-        status: 404,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({
-        error: err.message,
-        stack: err.stack
-      }), { 
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      if (url.pathname === '/api/fetch-info') return await handleFetchInfo(request, env);
+      if (url.pathname === '/api/groups' || url.pathname.startsWith('/api/groups/')) return await handleGroups(request, env, url);
+      if (url.pathname === '/api/links' || url.pathname.startsWith('/api/links/')) return await handleLinks(request, env, url);
+      return json({ error: '接口不存在' }, 404);
+    } catch (error) {
+      if (error instanceof HttpError) return json({ error: error.message }, error.status);
+      console.error(JSON.stringify({ event: 'request_error', path: url.pathname, message: error.message }));
+      return json({ error: '服务暂时不可用' }, 500);
     }
   },
-}; 
+};

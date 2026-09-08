@@ -1147,7 +1147,7 @@ body {
     color: #2d3748;
     transform: translateY(-2px);
     background: #edf2f7;
-} 
+}
 
 .link-card {
     position: relative;
@@ -1223,7 +1223,7 @@ body {
 
 .link-actions button:hover {
     z-index: 3;
-} 
+}
 
 /* 管理员按钮 */
 #adminButton {
@@ -1280,4 +1280,4 @@ body {
 
 .admin-button i {
     font-size: 14px;
-} 
+}

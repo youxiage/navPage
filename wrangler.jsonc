@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nav-page",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./static",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nav-page-db",
+      "database_id": "30f6caf8-7598-4eb0-a733-f0be0c59749c",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "LOGIN_RATE_LIMITER",
+      "namespace_id": "992698001",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ],
+  "routes": [{ "pattern": "nav.992698.xyz", "custom_domain": true }],
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

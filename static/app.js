@@ -11,6 +11,24 @@ const SEARCH_ENGINES = {
     }
 };
 
+function escapeHTML(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function safeHttpUrl(value, fallback = '#') {
+    try {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol) ? escapeHTML(url.href) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 // 保存搜索引擎选择
 function saveSearchEngine(engine) {
     localStorage.setItem('preferred_search_engine', engine);
@@ -26,10 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 设置保存的搜索引擎
     const searchEngine = document.getElementById('searchEngine');
     searchEngine.value = getSearchEngine();
-    
+
     // 检查并恢复登录状态
     checkLoginStatus();
-    
+
     initializePage();
 });
 
@@ -127,7 +145,7 @@ function handleSearch(event) {
     const searchInput = document.getElementById('searchInput');
     const searchEngine = document.getElementById('searchEngine');
     const query = searchInput.value.trim();
-    
+
     if (query) {
         const url = SEARCH_ENGINES[searchEngine.value].url + encodeURIComponent(query);
         window.open(url, '_blank');
@@ -149,7 +167,7 @@ function closeAdminModal() {
 async function handleLogin(event) {
     event.preventDefault();
     const password = document.getElementById('adminPassword').value;
-    
+
     try {
         await login(password);
         closeAdminModal();
@@ -168,22 +186,22 @@ function openLinkModal(linkId = null) {
         showToast('请先登录管理员账号');
         return;
     }
-    
+
     const modal = document.getElementById('linkModal');
     const form = document.getElementById('linkForm');
     form.reset();
-    
+
     updateGroupSelect();
-    
+
     if (linkId) {
         loadLinkData(linkId);
     }
-    
+
     // 添加 URL 输入框的失焦事件监听
     const urlInput = document.getElementById('linkUrl');
     urlInput.removeEventListener('blur', autoFillLinkInfo); // 先移除旧的监听器
     urlInput.addEventListener('blur', autoFillLinkInfo);
-    
+
     modal.style.display = 'block';
 }
 
@@ -195,13 +213,13 @@ async function handleLinkSubmit(event) {
     event.preventDefault();
     const linkId = event.target.dataset.linkId;
     const groupId = parseInt(document.getElementById('linkGroup').value);
-    
+
     let orderNum;
     if (linkId) {
         // 编辑现有链接
         const links = await fetchLinks();
         const currentLink = links.find(l => l.id === parseInt(linkId));
-        
+
         if (currentLink && currentLink.group_id !== groupId) {
             // 如果分组发生变化
             try {
@@ -209,7 +227,7 @@ async function handleLinkSubmit(event) {
                 const oldGroupLinks = links
                     .filter(l => l.group_id === currentLink.group_id)
                     .sort((a, b) => a.order_num - b.order_num);
-                
+
                 // 更新原分组中序号大于当前链接的所有链接
                 for (let i = 0; i < oldGroupLinks.length; i++) {
                     const link = oldGroupLinks[i];
@@ -220,7 +238,7 @@ async function handleLinkSubmit(event) {
                         });
                     }
                 }
-                
+
                 // 获取新分组的最大序号
                 const groupLinks = links.filter(l => l.group_id === groupId);
                 groupLinks.sort((a, b) => a.order_num - b.order_num);
@@ -239,7 +257,7 @@ async function handleLinkSubmit(event) {
             const links = await fetchLinks();
             const groupLinks = links.filter(l => l.group_id === groupId);
             // 找到当前分组中最大的序号
-            const maxOrderNum = groupLinks.reduce((max, link) => 
+            const maxOrderNum = groupLinks.reduce((max, link) =>
                 Math.max(max, link.order_num || 0), 0);
             orderNum = maxOrderNum + 1;
         } catch (error) {
@@ -247,7 +265,7 @@ async function handleLinkSubmit(event) {
             orderNum = 1; // 如果出错，默认使用1
         }
     }
-    
+
     const formData = {
         name: document.getElementById('linkName').value,
         url: document.getElementById('linkUrl').value,
@@ -256,14 +274,14 @@ async function handleLinkSubmit(event) {
         group_id: groupId,
         order_num: orderNum
     };
-    
+
     try {
         if (linkId) {
             await updateLink(parseInt(linkId), formData);
         } else {
             await createLink(formData);
         }
-        
+
         closeLinkModal();
         showToast('保存成功');
         await loadNavigation();
@@ -278,16 +296,16 @@ function openGroupModal(groupId = null) {
         showToast('请先登录管理员账号');
         return;
     }
-    
+
     const modal = document.getElementById('groupModal');
     const form = document.getElementById('groupForm');
     form.reset();
     form.dataset.groupId = groupId || '';
-    
+
     if (groupId) {
         loadGroupData(groupId);
     }
-    
+
     modal.style.display = 'block';
 }
 
@@ -298,17 +316,17 @@ function closeGroupModal() {
 async function handleGroupSubmit(event) {
     event.preventDefault();
     const groupId = event.target.dataset.groupId;
-    
+
     // 获取当前最大序号
     const groups = await fetchGroups();
     const maxOrderNum = Math.max(0, ...groups.map(g => g.order_num || 0));
-    
+
     const formData = {
         name: document.getElementById('groupName').value,
         is_private: document.getElementById('groupPrivate').checked,
         order_num: groupId ? parseInt(event.target.dataset.orderNum) || 0 : maxOrderNum + 1
     };
-    
+
     try {
         if (groupId) {
             await updateGroup(groupId, formData);
@@ -336,7 +354,7 @@ async function getIconUrl({ url }) {
         if (cachedUrl) {
             return cachedUrl;
         }
-        
+
         // 尝试不同的图标服务，按可靠性排序
         const iconUrls = [
             // 使用 Icon Horse 服务（支持 CORS）
@@ -346,7 +364,7 @@ async function getIconUrl({ url }) {
             // 最后尝试网站自身的图标
             `https://${domain}/favicon.ico`
         ];
-        
+
         // 依次尝试每个图标源
         for (const iconUrl of iconUrls) {
             try {
@@ -357,7 +375,7 @@ async function getIconUrl({ url }) {
                     img.onerror = reject;
                     img.src = iconUrl;
                 });
-                
+
                 // 如果图片加载成功，缓存并返回URL
                 localStorage.setItem(cacheKey, iconUrl);
                 return iconUrl;
@@ -366,7 +384,7 @@ async function getIconUrl({ url }) {
                 continue;
             }
         }
-        
+
         // 如果所有尝试都失败了，返回 null 使用备选图标
         return null;
     } catch (error) {
@@ -378,7 +396,7 @@ async function getIconUrl({ url }) {
 async function loadNavigation() {
     const navigationElement = document.getElementById('navigation');
     const groupNavElement = document.getElementById('groupNav');
-    
+
     // 设置加载状态
     const loadingHtml = `
         <div class="nav-loading">
@@ -387,7 +405,7 @@ async function loadNavigation() {
             <div class="nav-loading-dot"></div>
         </div>
     `;
-    
+
     navigationElement.innerHTML = `
         <div class="loading">
             <div class="loading-wave">
@@ -398,14 +416,14 @@ async function loadNavigation() {
         </div>
     `;
     groupNavElement.innerHTML = loadingHtml;
-    
+
     try {
         const groups = await fetchGroups();
         const links = await fetchLinks();
-        
+
         let html = '';
         let navHtml = '';
-        
+
         // 如果是编辑模式，添加管理按钮
         if (isEditMode) {
             html += `
@@ -419,19 +437,19 @@ async function loadNavigation() {
                 </div>
             `;
         }
-        
+
         // 如果没有数据，显示相应提示
         if (groups.length === 0) {
             navigationElement.innerHTML = html + '暂无内容';
             groupNavElement.innerHTML = '暂无分组';
             return;
         }
-        
+
         for (const group of groups) {
             if (!group.is_private || isAdmin) {
                 const groupLinks = links.filter(link => link.group_id === group.id);
                 const groupId = `group-${group.id}`;
-                
+
                 html += `
                     <div id="${groupId}" class="group">
                         <div class="group-title">
@@ -443,33 +461,33 @@ async function loadNavigation() {
                         </div>
                     </div>
                 `;
-                
+
                 navHtml += `
-                    <a href="#${groupId}" 
-                       class="nav-item" 
+                    <a href="#${groupId}"
+                       class="nav-item"
                        onclick="highlightNavItem(this)"
                        data-group-id="${groupId}">
-                        ${group.name}
-                        ${group.is_private ? 
+                        ${escapeHTML(group.name)}
+                        ${group.is_private ?
                             `<i class="fas fa-lock group-privacy-icon" title="私密分组"></i>` : ''
                         }
                     </a>
                 `;
             }
         }
-        
+
         // 更新内容
         navigationElement.innerHTML = html;
         groupNavElement.innerHTML = navHtml;
-        
+
         // 加载图标
         await loadIcons();
-        
+
         // 监听滚动事件来更新活动项
         window.addEventListener('scroll', updateActiveNavItem);
     } catch (error) {
         // 显示错误信息
-        navigationElement.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+        navigationElement.innerHTML = `<div class="error">加载失败: ${escapeHTML(error.message)}</div>`;
         groupNavElement.innerHTML = `<div class="error">加载失败</div>`;
     }
 }
@@ -486,7 +504,7 @@ function highlightNavItem(element) {
 function updateActiveNavItem() {
     const groups = document.querySelectorAll('.group');
     const navItems = document.querySelectorAll('.nav-item');
-    
+
     groups.forEach((group, index) => {
         const rect = group.getBoundingClientRect();
         if (rect.top <= 100 && rect.bottom >= 100) {
@@ -497,20 +515,22 @@ function updateActiveNavItem() {
 
 // 创建链接卡片
 function createLinkCard(link) {
-    const domain = new URL(link.url).hostname;
+    const safeLinkUrl = safeHttpUrl(link.url);
+    const domain = safeLinkUrl === '#' ? 'example.com' : new URL(link.url).hostname;
     const defaultIcon = `https://icon.horse/icon/${domain}`;
+    const safeIconUrl = safeHttpUrl(link.logo || defaultIcon, defaultIcon);
 
     return `
         <div class="link-card">
-            <a href="${link.url}" target="_blank" class="link-content">
-                <img class="link-icon" src="${link.logo || defaultIcon}" 
+            <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-content">
+                <img class="link-icon" src="${safeIconUrl}"
                      alt="" onerror="this.src='https://icon.horse/icon/example.com'">
                 <div class="link-card-content">
-                    <div class="link-title">${link.name}</div>
-                    ${link.description ? `<div class="link-description">${link.description}</div>` : ''}
+                    <div class="link-title">${escapeHTML(link.name)}</div>
+                    ${link.description ? `<div class="link-description">${escapeHTML(link.description)}</div>` : ''}
                 </div>
             </a>
-            <div class="link-url-tooltip">${link.url}</div>
+            <div class="link-url-tooltip">${escapeHTML(link.url)}</div>
             ${isEditMode ? `
                 <div class="link-actions">
                     <button onclick="openLinkModal(${link.id})"><i class="fas fa-edit"></i> 编辑</button>
@@ -529,10 +549,11 @@ function createLinkCard(link) {
 function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    
+    const safeType = ['success', 'error', 'loading'].includes(type) ? type : 'success';
+    toast.className = `toast ${safeType}`;
+
     let icon = '';
-    switch (type) {
+    switch (safeType) {
         case 'success':
             icon = '<i class="fas fa-check-circle"></i>';
             break;
@@ -543,17 +564,18 @@ function showToast(message, type = 'success') {
             icon = '<i class="fas fa-spinner"></i>';
             break;
     }
-    
-    toast.innerHTML = `${icon}${message}`;
+
+    toast.innerHTML = icon;
+    toast.appendChild(document.createTextNode(String(message)));
     container.appendChild(toast);
-    
+
     // 3秒后自动移除
-    if (type !== 'loading') {
+    if (safeType !== 'loading') {
         setTimeout(() => {
             toast.remove();
         }, 3000);
     }
-    
+
     return toast;
 }
 
@@ -564,12 +586,12 @@ function showConfirm(title, message) {
         dialog.querySelector('.confirm-title').textContent = title;
         dialog.querySelector('.confirm-message').textContent = message;
         dialog.style.display = 'block';
-        
+
         const handleClick = (result) => {
             dialog.style.display = 'none';
             resolve(result);
         };
-        
+
         dialog.querySelector('.confirm-ok').onclick = () => handleClick(true);
         dialog.querySelector('.confirm-cancel').onclick = () => handleClick(false);
     });
@@ -589,7 +611,7 @@ async function deleteGroupConfirm(groupId) {
         '删除分组',
         '确定要删除这个分组吗？这将同时删除组内的所有链接！'
     );
-    
+
     if (confirmed) {
         const toast = showToast('正在删除分组...', 'loading');
         try {
@@ -646,8 +668,8 @@ async function updateGroupSelect() {
     try {
         const groups = await fetchGroups();
         select.innerHTML = '<option value="">选择分组...</option>' +
-            groups.map(group => 
-                `<option value="${group.id}">${group.name}</option>`
+            groups.map(group =>
+                `<option value="${group.id}">${escapeHTML(group.name)}</option>`
             ).join('');
     } catch (error) {
         console.error('加载分组列表失败:', error);
@@ -660,7 +682,7 @@ async function deleteLinkConfirm(linkId) {
         '删除链接',
         '确定要删除这个链接吗？'
     );
-    
+
     if (confirmed) {
         const toast = showToast('正在删除链接...', 'loading');
         try {
@@ -685,7 +707,7 @@ async function moveLinkUp(linkId, groupId) {
         showToast('已经是第一个链接了', 'error');
         return;
     }
-    
+
     toast = showToast('正在更新顺序...', 'loading');
     const currentLink = links[currentIndex];
     const prevLink = links[currentIndex - 1];
@@ -698,7 +720,7 @@ async function moveLinkUp(linkId, groupId) {
             ...prevLink,
             order_num: currentLink.order_num
         });
-        
+
         toast.remove();
         showToast('链接顺序已更新');
         await loadNavigation();
@@ -719,7 +741,7 @@ async function moveLinkDown(linkId, groupId) {
         showToast('已经是最后一个链接了', 'error');
         return;
     }
-    
+
     toast = showToast('正在更新顺序...', 'loading');
     const currentLink = links[currentIndex];
     const nextLink = links[currentIndex + 1];
@@ -732,7 +754,7 @@ async function moveLinkDown(linkId, groupId) {
             ...nextLink,
             order_num: currentLink.order_num
         });
-        
+
         toast.remove();
         showToast('链接顺序已更新');
         await loadNavigation();
@@ -759,10 +781,10 @@ async function autoFillLinkInfo() {
         // 获取网站图标
         const domain = new URL(url).hostname;
         const iconUrl = await getIconUrl({ url });
-        
+
         // 获取网页信息
         const info = await fetchWebInfo(url);
-        
+
         // 只在字段为空时填充
         if (!nameInput.value) {
             nameInput.value = info.title || '';
@@ -773,7 +795,7 @@ async function autoFillLinkInfo() {
         if (!descriptionInput.value) {
             descriptionInput.value = info.description || '';
         }
-        
+
         toast.remove();
         showToast('获取网页信息成功');
     } catch (error) {
@@ -792,7 +814,7 @@ async function moveGroupUp(groupId) {
         showToast('已经是第一个分组了', 'error');
         return;
     }
-    
+
     toast = showToast('正在更新顺序...', 'loading');
     const currentGroup = groups[currentIndex];
     const prevGroup = groups[currentIndex - 1];
@@ -805,7 +827,7 @@ async function moveGroupUp(groupId) {
             ...prevGroup,
             order_num: currentGroup.order_num
         });
-        
+
         toast.remove();
         showToast('分组顺序已更新');
         await loadNavigation();
@@ -826,7 +848,7 @@ async function moveGroupDown(groupId) {
         showToast('已经是最后一个分组了', 'error');
         return;
     }
-    
+
     toast = showToast('正在更新顺序...', 'loading');
     const currentGroup = groups[currentIndex];
     const nextGroup = groups[currentIndex + 1];
@@ -839,7 +861,7 @@ async function moveGroupDown(groupId) {
             ...nextGroup,
             order_num: currentGroup.order_num
         });
-        
+
         toast.remove();
         showToast('分组顺序已更新');
         await loadNavigation();
@@ -854,7 +876,7 @@ async function moveGroupDown(groupId) {
 // 生成分组操作按钮
 function getGroupActions(groupId) {
     if (!isEditMode) return '';
-    
+
     return `
         <div class="group-actions">
             <div class="order-actions">
@@ -879,9 +901,9 @@ function getGroupActions(groupId) {
 function getGroupTitle(group) {
     return `
         <div class="group-title-left">
-            ${group.name}
-            ${group.is_private ? 
-                `<i class="fas fa-lock group-privacy-icon" title="私密分组"></i>` : 
+            ${escapeHTML(group.name)}
+            ${group.is_private ?
+                `<i class="fas fa-lock group-privacy-icon" title="私密分组"></i>` :
                 (isEditMode ? `<i class="fas fa-lock-open group-privacy-icon" title="公开分组"></i>` : '')
             }
         </div>
@@ -890,7 +912,8 @@ function getGroupTitle(group) {
 
 // 生成链接卡片
 function getLinkCard(link) {
-    const iconSrc = link.logo || '#';
+    const safeLinkUrl = safeHttpUrl(link.url);
+    const iconSrc = safeHttpUrl(link.logo || '', '#');
     const defaultIcon = encodeURIComponent(`
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
             <rect width="24" height="24" rx="12" fill="#4299e1" opacity="0.1"/>
@@ -899,20 +922,20 @@ function getLinkCard(link) {
     `.trim());
 
     return `
-        <a href="${link.url}" target="_blank" class="link-card">
+        <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-card">
             <div class="link-info">
                 <div class="link-icon">
-                    <img src="${iconSrc}" 
-                        data-url="${link.url}"
-                        alt="${link.name}" 
+                    <img src="${iconSrc}"
+                        data-url="${safeLinkUrl}"
+                        alt="${escapeHTML(link.name)}"
                         ${!link.logo ? 'data-auto-icon="true"' : ''}
                         onerror="this.onerror=null; this.src='data:image/svg+xml,${defaultIcon}';">
                 </div>
                 <div class="link-text">
                     <span class="link-title">
-                        ${link.name}
+                        ${escapeHTML(link.name)}
                     </span>
-                    <div class="link-description">${link.description || ''}</div>
+                    <div class="link-description">${escapeHTML(link.description || '')}</div>
                 </div>
             </div>
             ${isEditMode ? `
@@ -940,7 +963,7 @@ function getLinkCard(link) {
 // 根据URL获取合适的后备图标
 function getFallbackIcon(url) {
     const domain = new URL(url).hostname.toLowerCase();
-    
+
     // 常见网站的图标映射
     const iconMap = {
         'github.com': 'github',
@@ -986,7 +1009,7 @@ function getFallbackIcon(url) {
     if (domain.includes('game')) return 'gamepad';
     if (domain.includes('news')) return 'newspaper';
     if (domain.includes('blog')) return 'blog';
-    
+
     // 默认图标
     return 'link';
 }
