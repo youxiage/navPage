@@ -124,18 +124,8 @@ async function deleteLink(id) {
 
 // 获取网页信息
 async function fetchWebInfo(url) {
-    const response = await fetch(`${API_BASE_URL}/fetch-info`, {
+    return fetchAPI('/fetch-info', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
         body: JSON.stringify({ url })
     });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '获取网页信息失败');
-    }
-
-    return response.json();
 }

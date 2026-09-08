@@ -174,11 +174,13 @@ body {
 
 .search-bar input {
     flex: 1;
+    min-width: 0;
     padding: 10px;
     padding-left: 35px;
     font-size: 16px;
     border: 1px solid #ddd;
-    border-radius: 8px;
+    border-right: none;
+    border-radius: 8px 0 0 8px;
     transition: all 0.3s ease;
 }
 
@@ -186,6 +188,32 @@ body {
     outline: none;
     border-color: #4299e1;
     box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+}
+
+.search-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-width: 92px;
+    padding: 0 18px;
+    border: 1px solid #3182ce;
+    border-radius: 0 8px 8px 0;
+    background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.search-button:hover {
+    background: linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%);
+}
+
+.search-button:focus-visible {
+    outline: 3px solid rgba(66, 153, 225, 0.3);
+    outline-offset: 2px;
 }
 
 /* 动画效果 */
