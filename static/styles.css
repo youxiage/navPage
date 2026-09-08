@@ -773,14 +773,16 @@ body {
 }
 
 /* 编辑模式拖动排序 */
-.group[draggable="true"] > .group-title,
-.link-card[draggable="true"] {
+.group[data-drag-type="group"] > .group-title,
+.link-card[data-drag-type="link"] {
     cursor: grab;
     user-select: none;
+    touch-action: none;
 }
 
-.group[draggable="true"]:active > .group-title,
-.link-card[draggable="true"]:active {
+.group[data-drag-type="group"] > .group-title:active,
+.link-card[data-drag-type="link"]:active,
+body.sorting-active {
     cursor: grabbing;
 }
 

@@ -486,8 +486,8 @@ async function loadNavigation() {
 
                 html += `
                     <div id="${groupId}" class="group" data-group-id="${group.id}"
-                         ${isEditMode ? 'draggable="true" data-drag-type="group"' : ''}>
-                        <div class="group-title">
+                         ${isEditMode ? 'data-drag-type="group"' : ''}>
+                        <div class="group-title" ${isEditMode ? 'title="按住分类标题并拖动排序"' : ''}>
                             ${getGroupTitle(group)}
                             ${getGroupActions(group.id)}
                         </div>
@@ -702,58 +702,74 @@ async function deleteLinkConfirm(linkId) {
     }
 }
 
-let dragSortState = null;
+let pointerSortState = null;
+let pointerSortTimer = null;
 
 function initializeDragSorting() {
     const navigation = document.getElementById('navigation');
-    navigation.ondragover = null;
-    navigation.ondrop = null;
-
-    if (!isEditMode) return;
-
-    navigation.querySelectorAll('[data-drag-type]').forEach(item => {
-        item.addEventListener('dragstart', handleSortDragStart);
-        item.addEventListener('dragend', handleSortDragEnd);
-    });
-    navigation.ondragover = handleSortDragOver;
-    navigation.ondrop = handleSortDrop;
+    navigation.onpointerdown = isEditMode ? handleSortPointerDown : null;
+    navigation.onpointermove = isEditMode ? handleSortPointerMove : null;
+    navigation.onpointerup = isEditMode ? handleSortPointerUp : null;
+    navigation.onpointercancel = isEditMode ? handleSortPointerCancel : null;
 }
 
-function handleSortDragStart(event) {
-    event.stopPropagation();
-    const item = event.currentTarget;
-    const type = item.dataset.dragType;
+function handleSortPointerDown(event) {
+    if (event.button !== 0 || event.target.closest('button, input, textarea, select')) return;
 
-    dragSortState = {
+    const link = event.target.closest('.link-card[data-drag-type="link"]');
+    const groupTitle = event.target.closest('.group[data-drag-type="group"] > .group-title');
+    const item = link || groupTitle?.closest('.group');
+    if (!item) return;
+
+    const type = link ? 'link' : 'group';
+    pointerSortState = {
         type,
         item,
-        groupId: type === 'link' ? Number(item.dataset.groupId) : null
+        groupId: type === 'link' ? Number(item.dataset.groupId) : null,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false
     };
-    item.classList.add('dragging');
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', `${type}:${type === 'group' ? item.dataset.groupId : item.dataset.linkId}`);
+    item.setPointerCapture?.(event.pointerId);
+    clearTimeout(pointerSortTimer);
+    pointerSortTimer = setTimeout(beginPointerSort, 180);
 }
 
-function handleSortDragOver(event) {
-    if (!dragSortState) return;
+function beginPointerSort() {
+    if (!pointerSortState || pointerSortState.active) return;
+    pointerSortState.active = true;
+    pointerSortState.item.classList.add('dragging');
+    document.body.classList.add('sorting-active');
+}
 
-    const { type, item, groupId } = dragSortState;
+function handleSortPointerMove(event) {
+    if (!pointerSortState || event.pointerId !== pointerSortState.pointerId) return;
+
+    const movedDistance = Math.hypot(
+        event.clientX - pointerSortState.startX,
+        event.clientY - pointerSortState.startY
+    );
+    if (!pointerSortState.active && movedDistance > 6) beginPointerSort();
+    if (!pointerSortState.active) return;
+
+    event.preventDefault();
+    const pointedElement = document.elementFromPoint(event.clientX, event.clientY);
+    if (!pointedElement) return;
+
+    const { type, item, groupId } = pointerSortState;
     if (type === 'group') {
-        const target = event.target.closest('.group');
+        const target = pointedElement.closest('.group');
         if (!target || target === item) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
         const targetRect = target.getBoundingClientRect();
         target.parentElement.insertBefore(item, event.clientY < targetRect.top + targetRect.height / 2 ? target : target.nextSibling);
         return;
     }
 
-    const linksContainer = event.target.closest('.links');
+    const linksContainer = pointedElement.closest('.links');
     if (!linksContainer || Number(linksContainer.dataset.groupId) !== groupId) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
 
-    const target = event.target.closest('.link-card');
+    const target = pointedElement.closest('.link-card');
     if (!target || target === item) {
         if (!target) linksContainer.appendChild(item);
         return;
@@ -767,13 +783,20 @@ function handleSortDragOver(event) {
     linksContainer.insertBefore(item, insertBefore ? target : target.nextSibling);
 }
 
-async function handleSortDrop(event) {
-    if (!dragSortState) return;
-    event.preventDefault();
+async function handleSortPointerUp(event) {
+    if (!pointerSortState || event.pointerId !== pointerSortState.pointerId) return;
+    clearTimeout(pointerSortTimer);
 
-    const state = dragSortState;
-    dragSortState = null;
+    const state = pointerSortState;
+    pointerSortState = null;
+    state.item.releasePointerCapture?.(event.pointerId);
+    if (!state.active) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    state.item.addEventListener('click', suppressClickAfterSort, { capture: true, once: true });
     state.item.classList.remove('dragging');
+    document.body.classList.remove('sorting-active');
     const toast = showToast('正在保存排序...', 'loading');
 
     try {
@@ -795,11 +818,17 @@ async function handleSortDrop(event) {
     }
 }
 
-function handleSortDragEnd(event) {
+function suppressClickAfterSort(event) {
+    event.preventDefault();
     event.stopPropagation();
-    if (!dragSortState) return;
-    dragSortState.item.classList.remove('dragging');
-    dragSortState = null;
+}
+
+function handleSortPointerCancel() {
+    clearTimeout(pointerSortTimer);
+    if (!pointerSortState) return;
+    pointerSortState.item.classList.remove('dragging');
+    pointerSortState = null;
+    document.body.classList.remove('sorting-active');
     loadNavigation();
 }
 
@@ -886,7 +915,7 @@ function getLinkCard(link) {
     return `
         <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-card"
            data-link-id="${link.id}" data-group-id="${link.group_id}"
-           ${isEditMode ? 'draggable="true" data-drag-type="link" title="长按并拖动调整顺序"' : ''}>
+           ${isEditMode ? 'data-drag-type="link" title="按住并拖动调整顺序"' : ''}>
             <div class="link-info">
                 <div class="link-icon">
                     <img src="${iconSrc}"
