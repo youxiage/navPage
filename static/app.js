@@ -485,7 +485,8 @@ async function loadNavigation() {
                 const groupId = `group-${group.id}`;
 
                 html += `
-                    <div id="${groupId}" class="group" data-group-id="${group.id}">
+                    <div id="${groupId}" class="group" data-group-id="${group.id}"
+                         ${isEditMode ? 'draggable="true" data-drag-type="group"' : ''}>
                         <div class="group-title">
                             ${getGroupTitle(group)}
                             ${getGroupActions(group.id)}
@@ -710,19 +711,18 @@ function initializeDragSorting() {
 
     if (!isEditMode) return;
 
-    navigation.querySelectorAll('.drag-handle').forEach(handle => {
-        handle.addEventListener('dragstart', handleSortDragStart);
-        handle.addEventListener('dragend', handleSortDragEnd);
+    navigation.querySelectorAll('[data-drag-type]').forEach(item => {
+        item.addEventListener('dragstart', handleSortDragStart);
+        item.addEventListener('dragend', handleSortDragEnd);
     });
     navigation.ondragover = handleSortDragOver;
     navigation.ondrop = handleSortDrop;
 }
 
 function handleSortDragStart(event) {
-    const handle = event.currentTarget;
-    const type = handle.dataset.dragType;
-    const item = type === 'group' ? handle.closest('.group') : handle.closest('.link-card');
-    if (!item) return;
+    event.stopPropagation();
+    const item = event.currentTarget;
+    const type = item.dataset.dragType;
 
     dragSortState = {
         type,
@@ -795,7 +795,8 @@ async function handleSortDrop(event) {
     }
 }
 
-function handleSortDragEnd() {
+function handleSortDragEnd(event) {
+    event.stopPropagation();
     if (!dragSortState) return;
     dragSortState.item.classList.remove('dragging');
     dragSortState = null;
@@ -862,12 +863,6 @@ function getGroupActions(groupId) {
 function getGroupTitle(group) {
     return `
         <div class="group-title-left">
-            ${isEditMode ? `
-                <button type="button" class="drag-handle group-drag-handle" draggable="true"
-                        data-drag-type="group" title="拖动分类排序" aria-label="拖动分类排序">
-                    <i class="fas fa-grip-vertical"></i>
-                </button>
-            ` : ''}
             ${escapeHTML(group.name)}
             ${group.is_private ?
                 `<i class="fas fa-lock group-privacy-icon" title="私密分组"></i>` :
@@ -889,18 +884,13 @@ function getLinkCard(link) {
     `.trim());
 
     return `
-        <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-card${isEditMode ? ' is-editable' : ''}"
-           data-link-id="${link.id}" data-group-id="${link.group_id}">
-            ${isEditMode ? `
-                <button type="button" class="drag-handle link-drag-handle" draggable="true"
-                        data-drag-type="link" title="拖动链接排序" aria-label="拖动链接排序"
-                        onclick="event.preventDefault();">
-                    <i class="fas fa-grip-vertical"></i>
-                </button>
-            ` : ''}
+        <a href="${safeLinkUrl}" target="_blank" rel="noopener noreferrer" class="link-card"
+           data-link-id="${link.id}" data-group-id="${link.group_id}"
+           ${isEditMode ? 'draggable="true" data-drag-type="link" title="长按并拖动调整顺序"' : ''}>
             <div class="link-info">
                 <div class="link-icon">
                     <img src="${iconSrc}"
+                        draggable="false"
                         data-url="${safeLinkUrl}"
                         alt="${escapeHTML(link.name)}"
                         ${!link.logo ? 'data-auto-icon="true"' : ''}

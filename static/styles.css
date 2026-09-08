@@ -773,46 +773,15 @@ body {
 }
 
 /* 编辑模式拖动排序 */
-.drag-handle {
+.group[draggable="true"] > .group-title,
+.link-card[draggable="true"] {
     cursor: grab;
-    touch-action: none;
+    user-select: none;
 }
 
-.drag-handle:active {
+.group[draggable="true"]:active > .group-title,
+.link-card[draggable="true"]:active {
     cursor: grabbing;
-}
-
-.group-drag-handle {
-    color: #718096;
-    margin-right: 2px;
-}
-
-.link-drag-handle {
-    position: absolute;
-    top: 7px;
-    right: 7px;
-    z-index: 3;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: none;
-    border-radius: 6px;
-    background: #edf2f7;
-    color: #3182ce;
-    opacity: 0.78;
-    transition: opacity 0.2s ease, background 0.2s ease;
-}
-
-.link-drag-handle:hover {
-    background: #e2e8f0;
-    opacity: 1;
-}
-
-.link-card.is-editable .link-info {
-    padding-right: 28px;
 }
 
 .group.dragging,
