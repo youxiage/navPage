@@ -34,6 +34,22 @@ function safeHttpUrl(value, fallback = '#') {
     }
 }
 
+function normalizeLinkInput(value) {
+    const trimmedValue = String(value ?? '').trim();
+    if (!trimmedValue) return null;
+
+    const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmedValue);
+    if (!hasScheme && !trimmedValue.includes('.')) return null;
+
+    try {
+        const url = new URL(hasScheme ? trimmedValue : `https://${trimmedValue}`);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+        return url.toString();
+    } catch {
+        return null;
+    }
+}
+
 // 保存搜索引擎选择
 function saveSearchEngine(engine) {
     localStorage.setItem('preferred_search_engine', engine);
@@ -790,18 +806,20 @@ async function autoFillLinkInfo() {
     const nameInput = document.getElementById('linkName');
     const logoInput = document.getElementById('linkLogo');
     const descriptionInput = document.getElementById('linkDescription');
-    const url = urlInput.value.trim();
+    const url = normalizeLinkInput(urlInput.value);
 
     if (!url) return;
 
+    if (urlInput.value !== url) {
+        urlInput.value = url;
+    }
+
     const toast = showToast('正在获取网页信息...', 'loading');
     try {
-        // 获取网站图标
-        const domain = new URL(url).hostname;
-        const iconUrl = await getIconUrl({ url });
-
-        // 获取网页信息
-        const info = await fetchWebInfo(url);
+        const [iconUrl, info] = await Promise.all([
+            getIconUrl({ url }),
+            fetchWebInfo(url)
+        ]);
 
         // 只在字段为空时填充
         if (!nameInput.value) {
